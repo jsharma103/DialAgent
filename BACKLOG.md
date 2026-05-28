@@ -87,10 +87,10 @@ during Phase 4 instead of separately is fine.
 **Observed**: 2026-05-27, real calls to USPS, GEICO, AT&T.
 - USPS IVR asked for ZIP → agent invented `92101` (San Diego)
 - GEICO IVR asked for ZIP → agent invented `90210` (Beverly Hills)
-- GEICO IVR asked for phone → agent **read Jay's actual cell out loud**
-  (`+16192147076`) because the SCOPE LIMITS rule said share callback
-  "if directly asked". The rule didn't anticipate IVRs counting as the
-  asker.
+- GEICO IVR asked for phone → agent **read the user's actual cell out
+  loud** (number redacted) because the SCOPE LIMITS rule said share
+  callback "if directly asked". The rule didn't anticipate IVRs
+  counting as the asker.
 
 **Fix applied**: server.py SYSTEM_PROMPT_TEMPLATE updated for v0.5's
 zero-PII posture:
