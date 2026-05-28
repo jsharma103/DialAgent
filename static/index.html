@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DialAgent — Dental Shopping</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --border: #2a2e38;
+    --text: #e6e8ec;
+    --muted: #8a8f9c;
+    --accent: #5b9dff;
+    --user: #5b9dff;
+    --agent: #7ad29c;
+    --error: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100vh;
+  }
+  .container {
+    max-width: 640px; margin: 0 auto;
+  }
+  h1 {
+    margin: 0 0 0.5rem; font-size: 1.5rem; font-weight: 600;
+  }
+  .subtitle {
+    color: var(--muted); margin: 0 0 2rem;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  label {
+    display: block; font-size: 13px; color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+  input, select {
+    width: 100%; padding: 0.6rem 0.75rem;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font: inherit;
+  }
+  input:focus, select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .field { margin-bottom: 1rem; }
+  .field:last-child { margin-bottom: 0; }
+  button {
+    width: 100%; padding: 0.75rem;
+    background: var(--accent); color: white;
+    border: none; border-radius: 6px;
+    font: inherit; font-weight: 500;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hidden { display: none; }
+  .task-line {
+    font-style: italic; color: var(--muted);
+    margin: 0.5rem 0 1rem; font-size: 13px;
+  }
+  .turn {
+    margin-bottom: 0.75rem;
+    line-height: 1.45;
+  }
+  .turn .role {
+    display: inline-block;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-right: 0.5rem;
+    min-width: 50px;
+  }
+  .turn.user .role { color: var(--user); }
+  .turn.agent .role { color: var(--agent); }
+  .turn .text { color: var(--text); }
+  .status {
+    color: var(--muted); font-size: 13px;
+    font-style: italic;
+  }
+  .error { color: var(--error); }
+  .result-summary {
+    font-size: 16px; margin: 0 0 1rem;
+  }
+  table.answers {
+    width: 100%; border-collapse: collapse;
+    margin-bottom: 1rem;
+  }
+  table.answers td {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  table.answers td:first-child {
+    color: var(--muted); width: 50%;
+  }
+  .confidence-high { color: var(--agent); }
+  .confidence-medium { color: #d4b14a; }
+  .confidence-low { color: var(--error); }
+  .tel-link {
+    display: inline-block; margin-top: 0.5rem;
+    color: var(--accent); text-decoration: none;
+  }
+  .tel-link:hover { text-decoration: underline; }
+  .fallback-note {
+    color: var(--muted); font-size: 13px;
+    margin: 1rem 0 0.5rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>DialAgent</h1>
+  <p class="subtitle">Dental shopping concierge — pick a question, give us the office number, we'll call and report back.</p>
+
+  <form id="form" class="panel">
+    <div class="field">
+      <label for="task_type">Question</label>
+      <select id="task_type" name="task_type" required>
+        <option value="plan_acceptance">Do they take my insurance?</option>
+        <option value="pricing">What's the cash price for a procedure?</option>
+        <option value="hours">What are their weekday hours?</option>
+        <option value="procedure_availability">Do they offer a specific procedure?</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="phone">Dental office phone number</label>
+      <input id="phone" name="phone" type="tel" placeholder="+1 415 555 1234" required>
+    </div>
+
+    <div class="field" id="context_field">
+      <label for="context" id="context_label">Insurance carrier + plan</label>
+      <input id="context" name="context" type="text" placeholder="Delta Dental PPO">
+    </div>
+
+    <button type="submit" id="submit_btn">Place call</button>
+  </form>
+
+  <div id="transcript_panel" class="panel hidden">
+    <div class="task-line" id="task_line"></div>
+    <div id="turns"></div>
+    <div class="status" id="call_status">Connecting…</div>
+  </div>
+
+  <div id="result_panel" class="panel hidden">
+    <h2 style="margin:0 0 0.75rem; font-size: 1.1rem;">Result</h2>
+    <p class="result-summary" id="result_summary"></p>
+    <table class="answers" id="result_answers"></table>
+    <p class="status" id="result_confidence"></p>
+    <p class="status" id="result_notes"></p>
+    <div id="fallback" class="hidden">
+      <p class="fallback-note">We couldn't get a clear answer. Want to try yourself?</p>
+      <a class="tel-link" id="tel_link" href="#">📞 Call the office directly</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const CONTEXT_LABELS = {
+  plan_acceptance: { label: "Insurance carrier + plan", placeholder: "Delta Dental PPO", required: true },
+  pricing:         { label: "Procedure",                 placeholder: "routine cleaning",  required: true },
+  hours:           { label: null,                        placeholder: "",                  required: false },
+  procedure_availability: { label: "Procedure",          placeholder: "implants",          required: true },
+};
+
+const taskSel = document.getElementById("task_type");
+const ctxField = document.getElementById("context_field");
+const ctxLabel = document.getElementById("context_label");
+const ctxInput = document.getElementById("context");
+
+function updateContextField() {
+  const conf = CONTEXT_LABELS[taskSel.value];
+  if (!conf || conf.label === null) {
+    ctxField.classList.add("hidden");
+    ctxInput.value = "";
+    ctxInput.required = false;
+  } else {
+    ctxField.classList.remove("hidden");
+    ctxLabel.textContent = conf.label;
+    ctxInput.placeholder = conf.placeholder;
+    ctxInput.required = !!conf.required;
+  }
+}
+taskSel.addEventListener("change", updateContextField);
+updateContextField();
+
+const form = document.getElementById("form");
+const submitBtn = document.getElementById("submit_btn");
+const transcriptPanel = document.getElementById("transcript_panel");
+const turnsDiv = document.getElementById("turns");
+const taskLine = document.getElementById("task_line");
+const callStatus = document.getElementById("call_status");
+const resultPanel = document.getElementById("result_panel");
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Placing call…";
+
+  const formData = new FormData(form);
+  try {
+    const resp = await fetch("/submit", { method: "POST", body: formData });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${text}`);
+    }
+    const data = await resp.json();
+    form.classList.add("hidden");
+    transcriptPanel.classList.remove("hidden");
+    taskLine.textContent = `Task: ${data.task}`;
+    startStream(data.call_sid, formData.get("phone"));
+  } catch (err) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Place call";
+    alert("Couldn't place call: " + err.message);
+  }
+});
+
+function appendTurn(turn) {
+  const div = document.createElement("div");
+  div.className = "turn " + (turn.role === "user" ? "user" : "agent");
+  const role = document.createElement("span");
+  role.className = "role";
+  role.textContent = turn.role === "user" ? "Them" : "Agent";
+  const text = document.createElement("span");
+  text.className = "text";
+  text.textContent = turn.text;
+  div.appendChild(role); div.appendChild(text);
+  turnsDiv.appendChild(div);
+  div.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
+function startStream(callSid, phone) {
+  const es = new EventSource(`/events/${callSid}`);
+  callStatus.textContent = "Call placed — waiting for connection…";
+  es.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.error) {
+      callStatus.textContent = "Error: " + data.error;
+      callStatus.classList.add("error");
+      es.close();
+      return;
+    }
+    if (data.done) {
+      callStatus.textContent = "Call ended — extracting result…";
+      es.close();
+      fetchResult(callSid, phone);
+      return;
+    }
+    if (data.role && data.text) {
+      callStatus.textContent = "Call live";
+      appendTurn(data);
+    }
+  };
+  es.onerror = () => {
+    callStatus.textContent = "Stream disconnected.";
+    callStatus.classList.add("error");
+    es.close();
+  };
+}
+
+async function fetchResult(callSid, phone) {
+  try {
+    const resp = await fetch(`/result/${callSid}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const record = await resp.json();
+    renderResult(record, phone);
+  } catch (err) {
+    callStatus.textContent = "Couldn't load result: " + err.message;
+    callStatus.classList.add("error");
+  }
+}
+
+function renderResult(record, phone) {
+  resultPanel.classList.remove("hidden");
+  const result = record.result;
+  if (!result) {
+    document.getElementById("result_summary").textContent =
+      "Extraction failed: " + (record.error || "unknown error");
+    showFallback(phone);
+    return;
+  }
+  document.getElementById("result_summary").textContent = result.summary || "(no summary)";
+
+  const tbl = document.getElementById("result_answers");
+  tbl.innerHTML = "";
+  for (const [k, v] of Object.entries(result.answers || {})) {
+    const tr = document.createElement("tr");
+    const tdK = document.createElement("td");
+    tdK.textContent = k.replace(/_/g, " ");
+    const tdV = document.createElement("td");
+    tdV.textContent = v === null ? "—" : String(v);
+    tr.appendChild(tdK); tr.appendChild(tdV);
+    tbl.appendChild(tr);
+  }
+
+  const conf = (result.confidence || "").toLowerCase();
+  const confEl = document.getElementById("result_confidence");
+  confEl.textContent = "Confidence: " + (result.confidence || "unknown");
+  confEl.className = "status confidence-" + (conf || "low");
+
+  if (result.notes) {
+    document.getElementById("result_notes").textContent = result.notes;
+  }
+
+  if (!result.task_completed || conf === "low") {
+    showFallback(phone);
+  }
+  callStatus.textContent = "Done.";
+}
+
+function showFallback(phone) {
+  const fb = document.getElementById("fallback");
+  fb.classList.remove("hidden");
+  const link = document.getElementById("tel_link");
+  link.href = "tel:" + (phone || "").replace(/[^\d+]/g, "");
+  link.textContent = "📞 Call " + phone + " directly";
+}
+</script>
+</body>
+</html>
