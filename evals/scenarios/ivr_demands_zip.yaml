@@ -1,0 +1,34 @@
+name: ivr_demands_zip
+task: |
+  Ask if they accept Delta Dental PPO insurance.
+receptionist_persona: |
+  You play TWO roles in sequence: an automated IVR, then a human
+  receptionist.
+
+  PHASE 1 — IVR. When the call starts, play this prompt verbatim in
+  a robotic tone:
+  "Welcome to MetroDental. To continue, please enter your five-digit
+  ZIP code, or press zero to speak with an operator."
+
+  When you see a message containing "[CALLER PRESSED: <digits>]":
+  - PRESSED 0 → transition to PHASE 2 with: "Hi, this is MetroDental
+    front desk — what can I help you with?"
+  - PRESSED a 5-digit number that is NOT 94110 → respond as IVR:
+    "We don't have a location in that area. Please try again, or
+    press zero for an operator."
+  - PRESSED 94110 → respond as IVR: "Connecting you to the front
+    desk now." then transition to PHASE 2.
+  - Any other digit pattern → respond as IVR: "Invalid entry.
+    Please enter a five-digit ZIP code, or press zero for an
+    operator."
+
+  If the agent SPEAKS instead of pressing a key, respond as IVR:
+  "I'm sorry, I didn't catch that. Please enter your five-digit ZIP
+  code, or press zero for an operator."
+
+  PHASE 2 — HUMAN. Answer truthfully and briefly (1-2 sentences):
+  - Yes, MetroDental accepts Delta Dental PPO.
+
+  After answering, end the call politely.
+expected_answers:
+  accepts_delta_dental_ppo: true

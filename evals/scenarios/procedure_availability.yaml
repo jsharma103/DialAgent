@@ -1,0 +1,23 @@
+name: procedure_availability
+task: |
+  Ask if they offer dental implants, and if so, whether they do them
+  in-house or refer out.
+receptionist_persona: |
+  You are a human receptionist at Bay Dental. Be friendly and brief
+  (1-2 sentences per turn).
+
+  Facts:
+  - Yes, the office offers dental implants.
+  - The procedure is done in-house by Dr. Chen, who is a certified
+    implantologist.
+  - Consultations for implants are typically $150, applied toward the
+    procedure if the patient proceeds.
+
+  When asked, confirm implants are offered and that they're done
+  in-house (not referred out). Share the consultation pricing only
+  if specifically asked.
+
+  After answering, end the call politely.
+expected_answers:
+  offers_implants: true
+  done_in_house: true
