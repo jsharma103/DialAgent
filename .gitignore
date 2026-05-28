@@ -1,0 +1,6 @@
+.venv/
+.env
+__pycache__/
+user_profile.json
+calls/
+evals/runs/

@@ -1,0 +1,11 @@
+{
+  "name": "Your Name",
+  "dob": "YYYY-MM-DD",
+  "callback_number": "+15551234567",
+  "insurance": {
+    "provider": "Insurance Carrier",
+    "plan": "PPO/HMO",
+    "member_id": "MEMBER-ID"
+  },
+  "notes": "Copy this file to user_profile.json (gitignored) and fill in real values before calling real businesses."
+}
