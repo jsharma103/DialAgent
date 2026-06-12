@@ -1,6 +1,7 @@
 import asyncio
 import hmac
 import json
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -73,6 +74,7 @@ from agent import (
     require_env,
     save_call_record,
 )
+import mcp_server
 
 load_dotenv()
 
@@ -80,6 +82,13 @@ logger.remove(0)
 logger.add(sys.stderr, level="INFO")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Streamable-HTTP ASGI app for the MCP connector (creates the session manager,
+# which is run from the FastAPI lifespan and mounted below). The secret is
+# baked into the mount path because claude.ai / ChatGPT no-auth connectors
+# can't send custom headers. Read at import; required for real startup anyway.
+_mcp_app = mcp_server.mcp.streamable_http_app()
+CONNECTOR_PATH = f"/connector/{os.environ.get('DIALAGENT_SECRET', '')}"
 
 # SSE event queues, keyed by call_sid. Drained by /events.
 LIVE_EVENTS: dict[str, asyncio.Queue] = {}
@@ -294,7 +303,10 @@ def place_twilio_call(to_number: str, task: str) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     require_env("DIALAGENT_SECRET")  # fail fast: the form/MCP secret must be set
-    yield
+    # The MCP session manager must run inside the parent app's lifespan
+    # (a mounted sub-app's own lifespan does not fire).
+    async with mcp_server.mcp.session_manager.run():
+        yield
 
 
 def verify_key(
@@ -506,3 +518,9 @@ async def media_stream(websocket: WebSocket) -> None:
             await websocket.close()
         except Exception:
             pass
+
+
+# Mount the MCP connector (streamable HTTP) after the API routes. The MCP
+# endpoint is <CONNECTOR_PATH>/mcp — the secret lives in the path, so a wrong
+# secret simply doesn't match any mount and 404s.
+app.mount(CONNECTOR_PATH, _mcp_app)

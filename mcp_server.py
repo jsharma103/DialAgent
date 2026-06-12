@@ -15,11 +15,20 @@ import os
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 BASE_URL = os.environ.get("DIALAGENT_BASE_URL", "http://localhost:8000")
 SECRET = os.environ.get("DIALAGENT_SECRET", "")
 
-mcp = FastMCP("DialAgent")
+# json_response=True: tool calls are request/response, so plain JSON bodies
+# are simpler than SSE streams (and fine for claude.ai / ChatGPT connectors).
+# DNS-rebinding protection is off: the connector is served behind an
+# arbitrary ngrok Host header, and the secret in the mount path is the guard.
+mcp = FastMCP(
+    "DialAgent",
+    json_response=True,
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 def _headers() -> dict[str, str]:

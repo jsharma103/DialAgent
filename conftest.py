@@ -1,9 +1,14 @@
+import os
 import sys
 from pathlib import Path
 
 # Put the project root on sys.path so tests in tests/ can `import server, agent`
 # regardless of how pytest is invoked.
 sys.path.insert(0, str(Path(__file__).parent))
+
+# The connector mount path is baked from DIALAGENT_SECRET at server-import time,
+# so it must be set before `import server`. setdefault preserves a real env value.
+os.environ.setdefault("DIALAGENT_SECRET", "test-secret")
 
 import pytest  # noqa: E402
 

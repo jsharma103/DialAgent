@@ -14,9 +14,36 @@ ChatGPT, not a separate app.
 
 ## Use DialAgent (remote connector)
 
-> **Coming in the connector phase.** Paste-the-URL setup for claude.ai and
-> ChatGPT lands here — zero install, zero keys, calls run on the host's
-> stack. Until then, use the stdio MCP server or the web form below.
+The primary way to use DialAgent: add it as a custom connector in your LLM
+host. Zero install, zero keys — the calls run on the operator's stack. You
+just need the connector URL (it embeds the secret):
+
+```
+https://<ngrok-domain>/connector/<DIALAGENT_SECRET>/mcp
+```
+
+**Add to claude.ai** (web, desktop, or mobile — the connection comes from
+Anthropic's cloud, so it works everywhere once added):
+Settings → Connectors → **Add custom connector** → paste the URL.
+
+**Add to ChatGPT** (Plus/Pro required):
+Settings → Apps → Advanced settings → **Developer mode** → add a connector →
+paste the URL.
+
+**Gemini:** the consumer Gemini app does **not** support custom MCP
+connectors. Gemini users go through the Gemini CLI via the stdio config in
+"Run your own instance" below.
+
+Then just say, in chat: *"call (415) 555-1234 and ask if they take Delta
+Dental PPO."* The host calls `place_call`, polls `get_call_status`, and
+renders the structured answer.
+
+**Caveats:**
+- The operator's laptop must be awake with the server **and** ngrok running.
+- Every connected person's calls run on the operator's Twilio / Deepgram /
+  Anthropic keys (and cost ~$0.05/min).
+- Anyone with the URL can place calls. To revoke everyone, rotate
+  `DIALAGENT_SECRET` (the connector URL changes with it).
 
 ---
 

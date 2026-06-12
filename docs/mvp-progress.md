@@ -14,7 +14,7 @@ Legend: ✅ done · 🚧 in progress · ⛔ blocked · ⏭️ skipped
 | 3 | Trust: evidence + confidence + evals | ⛔ (code pending; gate needs key) | — |
 | 4 | MCP server + endpoints + README | ✅ | `pytest tests/` → 36 passed |
 | 5 | Form secret | ✅ | `pytest tests/` → 44 passed |
-| 6 | Remote connector surface | 🚧 | — |
+| 6 | Remote connector surface | ✅ | `pytest tests/` → 45 passed (connector handshake + tools/list + wrong-secret 404) |
 | E | Morning checklist (Jay, real calls) | — | handed off — needs Jay |
 
 ---
@@ -279,7 +279,48 @@ pytest tests/ -q
 with `?key=`; `/submit` 200 with key; `/call-status` keyless → 204; `/`
 open; lifespan raises `RuntimeError` when the secret is unset.)
 
-## Phase 6 — remote connector
+## Phase 6 — remote connector ✅
+
+The FastMCP streamable-HTTP app is mounted into the FastAPI app at
+`/connector/<DIALAGENT_SECRET>` (MCP endpoint `…/connector/<secret>/mcp`).
+The secret lives in the path because claude.ai / ChatGPT no-auth
+connectors can't send custom headers; a wrong secret matches no mount and
+404s.
+
+Implementation (`server.py`): `import mcp_server`; `_mcp_app =
+mcp_server.mcp.streamable_http_app()` at import (this also creates the
+session manager); the parent `lifespan` runs `async with
+mcp_server.mcp.session_manager.run():` (a mounted sub-app's own lifespan
+never fires — this is the documented SDK pattern); `app.mount(CONNECTOR_PATH,
+_mcp_app)` after the API routes. `CONNECTOR_PATH` is derived from
+`DIALAGENT_SECRET` at import and exposed for tests. No import cycle:
+`server` → `mcp_server`; `mcp_server` imports only `mcp`/`httpx`/`os`. One
+tool definition, two transports (stdio `__main__` + mounted HTTP).
+
+`mcp_server.py` config: `FastMCP("DialAgent", json_response=True,
+transport_security=TransportSecuritySettings(enable_dns_rebinding_protection
+=False))`. **json_response** → JSON bodies (tools are request/response;
+simpler than SSE). **DNS-rebinding protection off** — the connector is
+served behind an arbitrary ngrok `Host` header; with it on (the default),
+the MCP transport returns **421 Misdirected Request** and the connector
+breaks. The secret-in-path is the guard. (Caught via the handshake probe;
+would have failed the real claude.ai connection in morning #7.)
+
+README now leads with connector setup: claude.ai (Settings → Connectors →
+Add custom connector → URL; web/desktop/mobile), ChatGPT (developer mode;
+Plus/Pro), Gemini → CLI/stdio only. Caveats recorded (laptop awake +
+ngrok; calls on operator keys; rotate secret to revoke; reserved ngrok
+domain keeps the URL stable).
+
+Gate evidence:
+```
+pytest tests/ -q
+45 passed, 1 warning in 2.16s
+```
+`test_connector_handshake_and_tools_list`: real JSON-RPC over ASGI inside
+`session_manager.run()` — initialize → 200 (`mcp-session-id` +
+serverInfo "DialAgent"), initialized → 202, tools/list → 3 tools,
+`/connector/WRONG/mcp` → 404.
 
 ## E. Morning checklist (needs Jay — do NOT run unattended)
 

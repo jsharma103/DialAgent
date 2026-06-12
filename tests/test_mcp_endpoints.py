@@ -4,6 +4,7 @@ import os
 import httpx
 
 import agent
+import mcp_server
 import server
 
 
@@ -180,8 +181,60 @@ def test_calls_empty_is_empty_list():
 # --- MCP layer wiring (thin: just confirm the 3 tools register) ---
 
 def test_mcp_server_registers_three_tools():
-    import mcp_server
-
     tools = asyncio.run(mcp_server.mcp.list_tools())
     names = {t.name for t in tools}
     assert names == {"place_call", "get_call_status", "list_recent_calls"}
+
+
+# --- Phase 6: mounted streamable-HTTP connector ---
+
+def test_connector_handshake_and_tools_list():
+    """The mounted connector answers an MCP initialize handshake and
+    tools/list returns the 3 tools; a wrong-secret path 404s. Raw JSON-RPC
+    POSTs over ASGI; the session manager is run as the lifespan would."""
+    accept = "application/json, text/event-stream"
+    path = server.CONNECTOR_PATH + "/mcp"
+    init = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "pytest", "version": "0"},
+        },
+    }
+
+    async def go():
+        async with mcp_server.mcp.session_manager.run():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=server.app), base_url="http://test"
+            ) as ac:
+                r = await ac.post(path, json=init, headers={"Accept": accept})
+                assert r.status_code == 200, r.text
+                sid = r.headers.get("mcp-session-id")
+                assert sid
+                result = r.json()["result"]
+                assert result["serverInfo"]["name"] == "DialAgent"
+                pv = result["protocolVersion"]
+
+                h = {"Accept": accept, "mcp-session-id": sid, "MCP-Protocol-Version": pv}
+                r2 = await ac.post(
+                    path,
+                    json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    headers=h,
+                )
+                assert r2.status_code == 202
+
+                r3 = await ac.post(
+                    path, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, headers=h
+                )
+                assert r3.status_code == 200
+                names = {t["name"] for t in r3.json()["result"]["tools"]}
+                assert names == {"place_call", "get_call_status", "list_recent_calls"}
+
+                # wrong secret in the path -> no mount matches -> 404
+                r4 = await ac.post("/connector/WRONG/mcp", json=init, headers={"Accept": accept})
+                assert r4.status_code == 404
+
+    asyncio.run(go())
