@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import httpx
 import pytest
@@ -14,8 +15,12 @@ V2_FIELDS = [
 
 
 def asgi_client() -> httpx.AsyncClient:
+    # Send the test secret (set by the isolated_state fixture) so protected
+    # endpoints authorize. Auth itself is exercised in test_auth.py.
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=server.app), base_url="http://test"
+        transport=httpx.ASGITransport(app=server.app),
+        base_url="http://test",
+        headers={"X-DialAgent-Key": os.environ.get("DIALAGENT_SECRET", "")},
     )
 
 

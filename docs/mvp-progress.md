@@ -13,8 +13,8 @@ Legend: ✅ done · 🚧 in progress · ⛔ blocked · ⏭️ skipped
 | 2 | Hang-up prep (code only) | ✅ | frame-path trace written; timeout 1200→600; live confirm = morning #4 |
 | 3 | Trust: evidence + confidence + evals | ⛔ (code pending; gate needs key) | — |
 | 4 | MCP server + endpoints + README | ✅ | `pytest tests/` → 36 passed |
-| 5 | Form secret | 🚧 | — |
-| 6 | Remote connector surface | — | — |
+| 5 | Form secret | ✅ | `pytest tests/` → 44 passed |
+| 6 | Remote connector surface | 🚧 | — |
 | E | Morning checklist (Jay, real calls) | — | handed off — needs Jay |
 
 ---
@@ -247,7 +247,37 @@ pytest tests/ -q
 terminal-immediate + long-poll-returns-terminal + partial-transcript +
 404, /calls newest-first + limit, and the 3-tool registration check.)
 
-## Phase 5 — form secret
+## Phase 5 — form secret ✅
+
+`DIALAGENT_SECRET` now guards the app. **Fail-fast at startup**: a
+FastAPI `lifespan` calls `require_env("DIALAGENT_SECRET")` (raises if
+unset). `verify_key` dependency accepts the secret via `X-DialAgent-Key`
+header **or** `?key=` query param (EventSource can't set headers),
+constant-time compare (`hmac.compare_digest`), 401 otherwise.
+
+- **Protected** (`Depends(verify_key)`): `/submit`, `/status/*`,
+  `/calls`, `/result/*`, `/events/*`.
+- **Open**: `/` (the page), `/ws` (Twilio media), `/call-status` (Twilio
+  can't send our header; X-Twilio-Signature validation deferred per plan
+  out-of-scope).
+
+`static/index.html` reads `key` from the URL query and appends it to
+every `/submit` / `/events` / `/result` request via `withKey()`; with no
+key it disables the form and shows "Append ?key=<your secret>".
+`docs/stack-setup.md` checklist updated with `DIALAGENT_SECRET` + how to
+generate it. Test infra: `isolated_state` fixture sets
+`DIALAGENT_SECRET=test-secret`; both `asgi_client()` helpers send it
+(read from env) so prior tests stay green; `test_auth.py` uses a no-key
+client to exercise the boundary.
+
+Gate evidence:
+```
+pytest tests/ -q
+44 passed, 1 warning in 2.32s
+```
+(`test_auth.py`: 401 without key / with wrong key; 200 with header and
+with `?key=`; `/submit` 200 with key; `/call-status` keyless → 204; `/`
+open; lifespan raises `RuntimeError` when the secret is unset.)
 
 ## Phase 6 — remote connector
 

@@ -199,6 +199,17 @@ const taskLine = document.getElementById("task_line");
 const callStatus = document.getElementById("call_status");
 const resultPanel = document.getElementById("result_panel");
 
+const KEY = new URLSearchParams(location.search).get("key") || "";
+function withKey(url) {
+  return url + (url.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(KEY);
+}
+if (!KEY) {
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Add ?key=… to the URL";
+  document.querySelector(".subtitle").textContent =
+    "Append ?key=<your secret> to the URL to use the form.";
+}
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   submitBtn.disabled = true;
@@ -206,7 +217,7 @@ form.addEventListener("submit", async (e) => {
 
   const formData = new FormData(form);
   try {
-    const resp = await fetch("/submit", { method: "POST", body: formData });
+    const resp = await fetch(withKey("/submit"), { method: "POST", body: formData });
     if (!resp.ok) {
       const text = await resp.text();
       throw new Error(`HTTP ${resp.status}: ${text}`);
@@ -238,7 +249,7 @@ function appendTurn(turn) {
 }
 
 function startStream(callSid, phone) {
-  const es = new EventSource(`/events/${callSid}`);
+  const es = new EventSource(withKey(`/events/${callSid}`));
   callStatus.textContent = "Call placed — waiting for connection…";
   es.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
@@ -268,7 +279,7 @@ function startStream(callSid, phone) {
 
 async function fetchResult(callSid, phone) {
   try {
-    const resp = await fetch(`/result/${callSid}`);
+    const resp = await fetch(withKey(`/result/${callSid}`));
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const record = await resp.json();
     renderResult(record, phone);

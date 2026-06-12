@@ -12,8 +12,10 @@ import server  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolated_state(tmp_path, monkeypatch):
-    """Every test gets a fresh on-disk calls dir and clean live registries."""
+    """Every test gets a fresh on-disk calls dir, a known auth secret, and
+    clean live registries."""
     monkeypatch.setenv("DIALAGENT_CALLS_DIR", str(tmp_path))
+    monkeypatch.setenv("DIALAGENT_SECRET", "test-secret")
     server.LIVE_EVENTS.clear()
     server.ACTIVE_CALLS.clear()
     yield tmp_path

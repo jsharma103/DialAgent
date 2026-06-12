@@ -40,7 +40,12 @@ Before writing any code, make sure these exist:
 - [ ] ngrok account for local webhook tunneling (reserved domain helps)
 - [ ] `.env` file with: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
       `TWILIO_PHONE_NUMBER`, `JAY_CELL`, `DEEPGRAM_API_KEY`,
-      `ANTHROPIC_API_KEY`, `NGROK_URL`
+      `ANTHROPIC_API_KEY`, `NGROK_URL`, `DIALAGENT_SECRET`
+- [ ] `DIALAGENT_SECRET` — shared secret guarding `/submit` and the MCP
+      tools; required at server startup (fail fast if unset). Generate with
+      `python -c "import secrets; print(secrets.token_urlsafe(16))"`. The web
+      form is then at `https://<ngrok>/?key=<DIALAGENT_SECRET>`; rotate the
+      secret to revoke all access.
 
 Dependencies are pinned in `requirements.txt`.
 

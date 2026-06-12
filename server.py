@@ -1,12 +1,24 @@
 import asyncio
+import hmac
 import json
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import quoteattr
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Request, Response, WebSocket
+from fastapi import (
+    Depends,
+    FastAPI,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+)
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from loguru import logger
 from twilio.rest import Client as TwilioClient
@@ -279,7 +291,26 @@ def place_twilio_call(to_number: str, task: str) -> str:
     return call.sid
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    require_env("DIALAGENT_SECRET")  # fail fast: the form/MCP secret must be set
+    yield
+
+
+def verify_key(
+    x_dialagent_key: str | None = Header(default=None, alias="X-DialAgent-Key"),
+    key: str | None = Query(default=None),
+) -> None:
+    """Auth dependency for protected endpoints. Accepts the secret via the
+    X-DialAgent-Key header (MCP) or ?key= query param (web form / EventSource,
+    which can't set headers). Constant-time compare; 401 otherwise."""
+    expected = require_env("DIALAGENT_SECRET")
+    provided = x_dialagent_key or key or ""
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(401, "invalid or missing key")
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/")
@@ -287,7 +318,7 @@ async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.post("/submit")
+@app.post("/submit", dependencies=[Depends(verify_key)])
 async def submit(request: Request) -> dict[str, str]:
     """Place a call. Accepts form data (web form: task_type + context) or
     JSON (MCP: free-text `task`, or `task_type` + `context`)."""
@@ -381,7 +412,7 @@ async def call_status_callback(
     return Response(status_code=204)
 
 
-@app.get("/events/{call_sid}")
+@app.get("/events/{call_sid}", dependencies=[Depends(verify_key)])
 async def events(call_sid: str) -> StreamingResponse:
     async def gen():
         queue = LIVE_EVENTS.get(call_sid)
@@ -401,7 +432,7 @@ async def events(call_sid: str) -> StreamingResponse:
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-@app.get("/result/{call_sid}")
+@app.get("/result/{call_sid}", dependencies=[Depends(verify_key)])
 async def result(call_sid: str) -> JSONResponse:
     path = get_calls_dir() / f"{call_sid}.json"
     if not path.exists():
@@ -418,7 +449,7 @@ def _status_snapshot(record: dict[str, Any], call_sid: str) -> dict[str, Any]:
     return snap
 
 
-@app.get("/status/{call_sid}")
+@app.get("/status/{call_sid}", dependencies=[Depends(verify_key)])
 async def status(call_sid: str, wait: int = 0) -> JSONResponse:
     """Long-poll: block until the call reaches a terminal status or `wait`
     seconds (clamped 0–120) elapse, then return the full current snapshot."""
@@ -434,7 +465,7 @@ async def status(call_sid: str, wait: int = 0) -> JSONResponse:
         elapsed += 1
 
 
-@app.get("/calls")
+@app.get("/calls", dependencies=[Depends(verify_key)])
 async def list_calls(limit: int = 10) -> JSONResponse:
     calls_dir = get_calls_dir()
     records: list[dict[str, Any]] = []

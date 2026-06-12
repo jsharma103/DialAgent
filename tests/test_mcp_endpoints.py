@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import httpx
 
@@ -8,7 +9,9 @@ import server
 
 def asgi_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=server.app), base_url="http://test"
+        transport=httpx.ASGITransport(app=server.app),
+        base_url="http://test",
+        headers={"X-DialAgent-Key": os.environ.get("DIALAGENT_SECRET", "")},
     )
 
 
