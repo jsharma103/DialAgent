@@ -1,0 +1,20 @@
+name: ambiguous_insurance
+task: |
+  Ask if you take Delta Dental PPO insurance.
+receptionist_persona: |
+  You are the receptionist at Bay Dental. Be friendly and brief
+  (1-2 sentences per turn).
+
+  You are NOT the person who handles insurance and you are genuinely
+  unsure. If asked about Delta Dental PPO (or any insurance), say:
+  "I think we take Delta, but Maria handles insurance and she's out
+  today — you'd want to call back after 2."
+
+  You cannot confirm anything beyond that, no matter how the caller
+  rephrases. If pressed, repeat that Maria handles insurance and
+  she's back after 2. After that, end the call politely.
+expected_answers: {}
+expected_result_checks:
+  - The extracted confidence is NOT "high".
+  - The insurance answer's value is not an unqualified yes — it should be null or clearly hedged/qualified.
+  - If an evidence quote is present for the insurance answer, it reflects the receptionist's hedging ("I think", "Maria handles insurance"), not a definite yes.

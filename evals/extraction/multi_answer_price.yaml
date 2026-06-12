@@ -1,0 +1,14 @@
+name: multi_answer_price
+task: Ask if they accept Delta Dental PPO and what the cash price is for a routine cleaning.
+transcript:
+  - {role: user, text: "Bay Dental, this is Amy."}
+  - {role: agent, text: "Hi, calling on behalf of Jay — do you take Delta Dental PPO?"}
+  - {role: user, text: "Yes, we take Delta Dental PPO."}
+  - {role: agent, text: "Great. And what's the cash price for a routine cleaning?"}
+  - {role: user, text: "A routine cleaning is $120 if you're paying cash."}
+  - {role: agent, text: "Perfect, that's everything I needed. Thanks!"}
+  - {role: agent, text: "[ENDED CALL: got both answers]"}
+expected_answers:
+  takes_delta_dental_ppo: true
+  cleaning_price: 120
+expected_confidence_any_of: [high, medium]

@@ -1,0 +1,11 @@
+name: hedged_yes
+task: Ask if they accept Delta Dental PPO insurance.
+transcript:
+  - {role: user, text: "Bay Dental, this is Amy."}
+  - {role: agent, text: "Hi, calling on behalf of Jay — do you take Delta Dental PPO?"}
+  - {role: user, text: "I believe so, but our office manager confirms insurance and she's out today."}
+  - {role: agent, text: "No problem, I'll have Jay follow up. Thanks!"}
+  - {role: agent, text: "[ENDED CALL: couldn't confirm — office manager out]"}
+expected_answers:
+  takes_delta_dental_ppo: null
+expected_confidence_any_of: [low, medium]

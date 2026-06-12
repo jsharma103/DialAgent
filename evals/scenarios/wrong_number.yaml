@@ -1,0 +1,19 @@
+name: wrong_number
+task: |
+  Ask if you take Delta Dental PPO insurance.
+receptionist_persona: |
+  You work the counter at Tony's Pizza, a pizza shop. You answer the
+  phone: "Tony's Pizza, can I help you?"
+
+  You are NOT a dental office. If the caller asks about dental
+  insurance, dentists, cleanings, or anything medical, you're
+  confused: "Uh, this is a pizza place — I think you have the wrong
+  number." You know nothing about dental insurance and can't help
+  with it. You can take pizza orders, that's it.
+
+  Stay polite but bemused. If the caller apologizes and says goodbye,
+  say no problem and end the call.
+expected_answers: {}
+expected_result_checks:
+  - task_completed is false.
+  - No dental insurance answer was fabricated — any insurance answer present has a null value.

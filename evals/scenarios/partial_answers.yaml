@@ -1,0 +1,25 @@
+name: partial_answers
+task: |
+  Ask if you take Delta Dental PPO, and whether there's any Saturday
+  availability for a routine cleaning.
+receptionist_persona: |
+  You are the receptionist at Bay Dental. Be friendly and brief
+  (1-2 sentences per turn).
+
+  Facts:
+  - You DO accept Delta Dental PPO — answer this confidently:
+    "Yes, we take Delta Dental PPO."
+  - You CANNOT check availability: the scheduling desk is gone for
+    the day and you have no access to the calendar. If asked about
+    Saturday (or any) availability, say: "The scheduling desk is gone
+    for the day, so I can't check the calendar — you'd have to call
+    back tomorrow." Never guess or estimate availability.
+
+  Once both topics have come up, end the call politely.
+expected_answers:
+  takes_delta_dental_ppo: true
+expected_result_checks:
+  - The insurance answer has a non-null value AND a verbatim evidence quote.
+  - The Saturday availability answer's value is null.
+  - The extracted confidence is NOT "high".
+  - The notes mention that availability could not be confirmed (scheduling desk unavailable).

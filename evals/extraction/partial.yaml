@@ -1,0 +1,14 @@
+name: partial
+task: Ask if they accept Delta Dental PPO, and whether they have Saturday availability for a cleaning.
+transcript:
+  - {role: user, text: "Bay Dental, this is Amy."}
+  - {role: agent, text: "Hi, calling on behalf of Jay — two quick questions. Do you take Delta Dental PPO?"}
+  - {role: user, text: "Yes, we take Delta Dental PPO."}
+  - {role: agent, text: "Great! And do you have any Saturday availability for a routine cleaning?"}
+  - {role: user, text: "The scheduling desk is gone for the day, so I can't check the calendar — you'd have to call back tomorrow."}
+  - {role: agent, text: "No worries, Jay will follow up. Thanks so much!"}
+  - {role: agent, text: "[ENDED CALL: insurance confirmed, availability unknown]"}
+expected_answers:
+  takes_delta_dental_ppo: true
+  saturday_availability: null
+expected_confidence_any_of: [low, medium]

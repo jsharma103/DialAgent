@@ -90,7 +90,25 @@ REPORT_TOOL: dict[str, Any] = {
             },
             "answers": {
                 "type": "object",
-                "description": "Key/value pairs of the questions asked and the answers received. Use snake_case keys inferred from the task. Values may be boolean, string, number, or null if unanswered.",
+                "description": (
+                    "One entry per question asked, keyed by snake_case keys inferred from the task. "
+                    "Each entry is an object {value, evidence}: `value` is boolean, string, number, or "
+                    "null if no answer was obtained; `evidence` is a VERBATIM quote from the transcript "
+                    "supporting the value, or null when there is no answer. Never paraphrase, never invent."
+                ),
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                        "value": {
+                            "description": "The answer: boolean, string, number, or null if unanswered.",
+                        },
+                        "evidence": {
+                            "type": ["string", "null"],
+                            "description": "Verbatim quote from the transcript supporting the value, or null.",
+                        },
+                    },
+                    "required": ["value", "evidence"],
+                },
             },
             "confidence": {
                 "type": "string",
@@ -204,7 +222,13 @@ async def extract_result(task: str, turns: list[dict[str, str]]) -> dict[str, An
     response = await client.messages.create(
         model=EXTRACT_MODEL,
         max_tokens=1024,
-        system="You extract structured outcomes from phone call transcripts. Use the report_result tool.",
+        system=(
+            "You extract structured outcomes from phone call transcripts. Use the report_result tool. "
+            "For each answer, `evidence` MUST be a verbatim quote copied exactly from the transcript — "
+            "never paraphrase, never invent. If the call did not produce an answer to a question "
+            "(refused, hedged, couldn't say, never reached), set that answer's value AND evidence to null "
+            "rather than guessing. A hedged or uncertain reply (\"I think so, but...\") is NOT a yes."
+        ),
         messages=[
             {
                 "role": "user",

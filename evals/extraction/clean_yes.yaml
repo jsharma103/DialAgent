@@ -1,0 +1,11 @@
+name: clean_yes
+task: Ask if they accept Delta Dental PPO insurance.
+transcript:
+  - {role: user, text: "Bay Dental, this is Amy."}
+  - {role: agent, text: "Hi, I'm calling on behalf of Jay — do you take Delta Dental PPO?"}
+  - {role: user, text: "Yes, we're in-network with Delta Dental PPO."}
+  - {role: agent, text: "Perfect, thanks so much! Have a great day."}
+  - {role: agent, text: "[ENDED CALL: got the answer]"}
+expected_answers:
+  takes_delta_dental_ppo: true
+expected_confidence_any_of: [high, medium]

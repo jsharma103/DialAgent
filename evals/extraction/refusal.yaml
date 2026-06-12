@@ -1,0 +1,11 @@
+name: refusal
+task: Ask what the cash price is for a routine cleaning.
+transcript:
+  - {role: user, text: "Bay Dental, this is Amy."}
+  - {role: agent, text: "Hi, I'm calling on behalf of Jay — what's the cash price for a routine cleaning?"}
+  - {role: user, text: "I'm sorry, we don't quote prices over the phone — you'd need to come in for an exam first."}
+  - {role: agent, text: "Understood, thanks anyway! Have a good one."}
+  - {role: agent, text: "[ENDED CALL: office won't quote prices by phone]"}
+expected_answers:
+  cleaning_price: null
+expected_confidence_any_of: [low, medium]

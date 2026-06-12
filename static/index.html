@@ -100,6 +100,10 @@
   table.answers td:first-child {
     color: var(--muted); width: 50%;
   }
+  table.answers tr.evidence td {
+    color: var(--muted); font-style: italic; font-size: 13px;
+    padding-top: 0;
+  }
   .confidence-high { color: var(--agent); }
   .confidence-medium { color: #d4b14a; }
   .confidence-low { color: var(--error); }
@@ -156,7 +160,7 @@
     <p class="status" id="result_confidence"></p>
     <p class="status" id="result_notes"></p>
     <div id="fallback" class="hidden">
-      <p class="fallback-note">We couldn't get a clear answer. Want to try yourself?</p>
+      <p class="fallback-note">We couldn't get a clear answer — here's what we heard. Want to try calling yourself?</p>
       <a class="tel-link" id="tel_link" href="#">📞 Call the office directly</a>
     </div>
   </div>
@@ -289,8 +293,24 @@ async function fetchResult(callSid, phone) {
   }
 }
 
+const TERMINAL_MESSAGES = {
+  no_answer: "No one answered the call.",
+  busy: "The line was busy.",
+  failed: "The call couldn't be completed.",
+  error: "Something went wrong on the call.",
+};
+
 function renderResult(record, phone) {
   resultPanel.classList.remove("hidden");
+
+  if (record.status && record.status !== "completed" && TERMINAL_MESSAGES[record.status]) {
+    document.getElementById("result_summary").textContent =
+      TERMINAL_MESSAGES[record.status] + (record.error ? " (" + record.error + ")" : "");
+    showFallback(phone);
+    callStatus.textContent = "Done.";
+    return;
+  }
+
   const result = record.result;
   if (!result) {
     document.getElementById("result_summary").textContent =
@@ -303,13 +323,25 @@ function renderResult(record, phone) {
   const tbl = document.getElementById("result_answers");
   tbl.innerHTML = "";
   for (const [k, v] of Object.entries(result.answers || {})) {
+    const isObj = v !== null && typeof v === "object" && "value" in v;
+    const val = isObj ? v.value : v;
+    const evidence = isObj ? v.evidence : null;
     const tr = document.createElement("tr");
     const tdK = document.createElement("td");
     tdK.textContent = k.replace(/_/g, " ");
     const tdV = document.createElement("td");
-    tdV.textContent = v === null ? "—" : String(v);
+    tdV.textContent = val === null ? "—" : String(val);
     tr.appendChild(tdK); tr.appendChild(tdV);
     tbl.appendChild(tr);
+    if (evidence) {
+      const evTr = document.createElement("tr");
+      evTr.className = "evidence";
+      const evTd = document.createElement("td");
+      evTd.colSpan = 2;
+      evTd.textContent = "“" + evidence + "”";
+      evTr.appendChild(evTd);
+      tbl.appendChild(evTr);
+    }
   }
 
   const conf = (result.confidence || "").toLowerCase();
