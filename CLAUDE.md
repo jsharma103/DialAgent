@@ -6,7 +6,8 @@ is the first user.
 **Current focus**: v0.5 — dental shopping concierge, **MCP-first**
 distribution (DialAgent exposed as a tool for Claude / Gemini / OpenAI
 hosts; the web form at `localhost:8000` is a secondary mobile/demo
-surface). See `docs/v0.5-shopping-concierge.md` for the active spec.
+surface). See `docs/v0.5-shopping-concierge.md` for the active spec and
+`docs/mvp-plan.md` for the implementation plan currently being executed.
 
 This file is the entry point for a fresh Claude Code session. The
 durable briefs live in `docs/` and are imported below. Read them before
@@ -16,6 +17,7 @@ suggesting anything.
 @docs/v0.5-shopping-concierge.md
 @docs/v0-build-order.md
 @docs/stack-setup.md
+@docs/mvp-plan.md
 
 ---
 

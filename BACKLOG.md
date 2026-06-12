@@ -169,6 +169,89 @@ in `server.py`. ~1 min change.
 
 ---
 
+## Scaling notes — 10+ concurrent users (post-v0.5)
+
+**One Twilio number is NOT the concurrency bottleneck.** A number is a
+caller ID, not a phone line — a single number can carry many
+simultaneous outbound calls. Real Twilio limits: account-level CPS
+(default ~1 call-initiation/sec; matters only for batch bursts — space
+out `calls.create`) and an account concurrency ceiling that is high and
+raisable via support ticket.
+
+What actually breaks at ~10 concurrent users, in order:
+1. **Hosting** — laptop + ngrok. Each call is a WS + full Pipecat
+   pipeline (VAD/STT/TTS streams). Move to a VPS/Fly/Railway with a
+   real domain before inviting strangers. ~1-2 days.
+2. **Number reputation, not capacity** — one number dialing many
+   dental offices invites carrier spam-labeling ("Spam Likely"), which
+   tanks answer rates. Mitigations when it shows up: CNAM registration,
+   verified caller ID, then a small number pool with local presence
+   (call from the callee's area code).
+3. **Same-office collisions** — two users querying the same office →
+   double robocalls. Cache-before-call (serve a recent answer instead
+   of redialing) fixes this and cuts cost.
+
+**Stripe effort estimate** (for when demand exists; monetization
+trigger per v0.5 spec):
+- Stripe itself is the easy ~1 day: Checkout payment links for prepaid
+  credit packs + one `checkout.session.completed` webhook that credits
+  a balance. No subscriptions, no metered billing, no invoicing.
+- The prerequisites are the real work: hosted deployment (above), API
+  keys + users table (SQLite fine, ~0.5 day), balance check before
+  `place_call` + decrement on call end using `duration_s` /
+  `est_cost_usd` from record schema v2 (~0.5 day), hosted MCP
+  transport for non-technical users (~1 day).
+- Total: "Stripe integration" ≈ 1 day; "product strangers can pay for"
+  ≈ 1-2 focused weeks on top of the MVP plan.
+
+---
+
+## Roadmap to stranger-ready (kept thin on purpose)
+
+Decision (2026-06-12): do NOT spec this in detail until the friend
+test produces data — a deep spec written on zero users decays against
+post-MVP code. The MVP plan already future-proofs the load-bearing
+seams: metering fields (`duration_s`/`est_cost_usd`), the auth seam
+(`DIALAGENT_SECRET` dependency → swap for per-user keys), MCP server
+as HTTP client (stdio → hosted transport is a contained swap),
+`DIALAGENT_CALLS_DIR` indirection.
+
+Milestone order (each gated, not dated):
+1. **Friend alpha** (= MVP plan done) — 5 friends connect to Jay's
+   instance via the claude.ai/ChatGPT connector URL (no install, Jay's
+   keys, laptop-hosted). Gate to proceed: ≥2 friends return unprompted
+   (the v0.5 bar).
+2. **Hosted alpha** — VPS/Fly + domain replaces laptop+ngrok; OAuth on
+   the connector. ~1-2 days. Gate: a stranger asks to try it, or the
+   laptop-must-be-awake constraint visibly costs usage.
+3. **Keys + balances** — users table, `dlk_` keys, balance enforcement
+   before `place_call`. ~1-2 days.
+4. **Stripe credit packs** — checkout links + webhook (see estimate
+   above). Gate: free usage costs real money / someone asks to pay.
+5. **Number pool / local presence** — only when "Spam Likely" actually
+   dents answer rates.
+
+Questions the friend test must answer before specing milestones 2-4
+(record answers here):
+- Do MCP hosts drive the long-poll loop acceptably, or do calls feel
+  lost mid-conversation?
+- What do friends actually ask? (task mix vs. the 4 templates)
+- Do friends trust the extracted answers, or click-to-dial to verify?
+- Does spam labeling appear even at friend volume?
+- Does anyone ask for batch? (separate feature axis, v0.6)
+
+Trigger to write the real stranger-ready spec (mvp-plan style, with
+gates and tests): friend bar met AND a stranger asks to use it.
+
+Connector polish, post-MVP, only if friction shows up:
+- **ChatGPT Custom GPT via Actions** — FastAPI already auto-generates
+  `openapi.json`; a Custom GPT with an API-key action is a ChatGPT
+  path that needs no developer mode and is shareable by link.
+- **Claude Desktop one-click bundle** (`.mcpb` desktop extension)
+  instead of JSON-snippet editing — only relevant for the stdio path.
+- **Claude connector directory submission** — once hosted + OAuth
+  exist; gets discovery instead of pasted URLs.
+
 ## STT shutdown warning on call end
 
 **Observed**: Phase 5 testing, 2026-05-27. After every call ends:
