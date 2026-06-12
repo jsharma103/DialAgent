@@ -12,7 +12,7 @@ import yaml
 from anthropic import AsyncAnthropic
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 
-import server
+import agent
 
 SCENARIOS_DIR = Path(__file__).parent / "evals" / "scenarios"
 RUNS_DIR = Path(__file__).parent / "evals" / "runs"
@@ -47,7 +47,7 @@ def schema_to_anthropic(schema: FunctionSchema) -> dict[str, Any]:
     }
 
 
-AGENT_TOOLS = [schema_to_anthropic(s) for s in (server.END_CALL_SCHEMA, server.SEND_DTMF_SCHEMA)]
+AGENT_TOOLS = [schema_to_anthropic(s) for s in (agent.END_CALL_SCHEMA, agent.SEND_DTMF_SCHEMA)]
 
 
 JUDGE_TOOL: dict[str, Any] = {
@@ -129,7 +129,7 @@ def is_goodbye(text: str) -> bool:
 async def run_scenario(client: AsyncAnthropic, scenario: dict[str, Any]) -> dict[str, Any]:
     task = scenario["task"]
     persona = scenario["receptionist_persona"]
-    agent_system = server.render_system_prompt(task, server.USER_PROFILE)
+    agent_system = agent.render_system_prompt(task, agent.get_user_profile())
 
     agent_msgs: list[dict[str, Any]] = []
     recep_msgs: list[dict[str, Any]] = [
@@ -195,7 +195,7 @@ async def run_scenario(client: AsyncAnthropic, scenario: dict[str, Any]) -> dict
         if agent_text and is_goodbye(agent_text) and not tool_blocks:
             break
 
-    result = await server.extract_result(task, turns)
+    result = await agent.extract_result(task, turns)
     grade = await judge(client, scenario, turns, result)
     return {"transcript": turns, "result": result, "grade": grade}
 
@@ -275,7 +275,7 @@ async def main() -> int:
             print(f"no scenario named {args.scenario!r}", file=sys.stderr)
             return 1
 
-    client = AsyncAnthropic(api_key=server.require_env("ANTHROPIC_API_KEY"))
+    client = AsyncAnthropic(api_key=agent.require_env("ANTHROPIC_API_KEY"))
     run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
