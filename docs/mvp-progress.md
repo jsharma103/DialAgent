@@ -10,8 +10,8 @@ Legend: ✅ done · 🚧 in progress · ⛔ blocked · ⏭️ skipped
 |---|---|---|---|
 | 0 | Foundations: `agent.py` split, requirements fix | ✅ (1 sub-gate deferred) | imports clean w/o env; fresh `/tmp` venv install + import OK |
 | 1 | Call lifecycle | ✅ | `pytest tests/test_lifecycle.py tests/test_observer.py` → 27 passed |
-| 2 | Hang-up prep (code only) | 🚧 | — |
-| 3 | Trust: evidence + confidence + evals | — | — |
+| 2 | Hang-up prep (code only) | ✅ | frame-path trace written; timeout 1200→600; live confirm = morning #4 |
+| 3 | Trust: evidence + confidence + evals | 🚧 | — |
 | 4 | MCP server + endpoints + README | — | — |
 | 5 | Form secret | — | — |
 | 6 | Remote connector surface | — | — |
@@ -156,7 +156,45 @@ into **Phase 3.1**, where the results view is rewritten anyway for
 evidence rendering + the low-confidence fallback CTA — avoids editing
 the same view twice. Verified together in morning checklist rows 2 & 5.
 
-## Phase 2 — hang-up prep
+## Phase 2 — hang-up prep ✅ (code only; live confirm = morning #4)
+
+**Timeout:** `idle_timeout_secs` 1200 → 600 in `run_bot` (20 min of dead
+air on an unattended call is money).
+
+**Frame-path trace — `end_call` → Twilio REST hang-up (pipecat 1.2.1).**
+Traced through the installed source; **the path is intact, no fix
+needed.** Step by step:
+
+1. `server.py end_call_handler` →
+   `params.llm.push_frame(EndTaskFrame(), FrameDirection.UPSTREAM)`.
+2. `EndTaskFrame` travels upstream to the task's source:
+   `pipeline/task.py:838 _source_push_frame` → `:849 isinstance(frame,
+   EndTaskFrame)` → `:852 await self.queue_frame(EndFrame(reason=...))`
+   (default direction = DOWNSTREAM).
+3. The `EndFrame` flows downstream through the pipeline to
+   `FastAPIWebsocketOutputTransport`. On `EndFrame` the base output
+   transport calls `stop(frame)`:
+   `transports/websocket/fastapi.py:399 stop()` → `:406
+   await self._write_frame(frame)` (then `:407 _client.disconnect()`).
+4. `:490 _write_frame` → `:499 payload = await
+   self._params.serializer.serialize(frame)`.
+5. `serializers/twilio.py:129 serialize()` → `:142-147` guard
+   `auto_hang_up (default True) and not _hangup_attempted and
+   isinstance(frame, (EndFrame, CancelFrame))` → `:147 await
+   self._hang_up_call()`.
+6. `:179 _hang_up_call` → `:196` POST to
+   `https://api.…twilio.com/2010-04-01/Accounts/{account_sid}/Calls/{call_sid}.json`
+   with status=`completed`, `aiohttp.BasicAuth(account_sid, auth_token)`
+   (`:199`) → Twilio terminates the call.
+
+`server.py handle_call` constructs `TwilioFrameSerializer` with
+`stream_sid`, `call_sid`, `account_sid`, `auth_token`, and
+`auto_hang_up` defaults `True` — so every precondition the serializer's
+`__init__` validates (twilio.py:84-96) is satisfied. The REST POST is
+awaited *inside* the `stop()` sequence, before the WS disconnects, so
+hang-up fires even if the human never hangs up. This closes the BACKLOG
+(2026-05-27) "calls only ended when the human hung up" question at the
+code level; **live confirmation is morning checklist #4.**
 
 ## Phase 3 — trust
 

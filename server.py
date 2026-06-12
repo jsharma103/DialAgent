@@ -185,7 +185,7 @@ async def run_bot(transport: BaseTransport, task: str, call_sid: str) -> None:
             audio_in_sample_rate=8000,
             audio_out_sample_rate=8000,
         ),
-        idle_timeout_secs=1200,
+        idle_timeout_secs=600,
         observers=[observer],
     )
 
