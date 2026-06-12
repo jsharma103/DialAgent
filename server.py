@@ -6,7 +6,7 @@ from typing import Any
 from xml.sax.saxutils import quoteattr
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, WebSocket
+from fastapi import FastAPI, Form, HTTPException, Response, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from loguru import logger
 from twilio.rest import Client as TwilioClient
@@ -48,9 +48,15 @@ from agent import (
     END_CALL_SCHEMA,
     SEND_DTMF_SCHEMA,
     TASK_TEMPLATES,
+    TERMINAL_STATUSES,
+    est_cost,
     extract_result,
+    finalize_timing,
     get_calls_dir,
     get_user_profile,
+    load_call_record,
+    new_call_record,
+    normalize_phone,
     render_system_prompt,
     require_env,
     save_call_record,
@@ -63,7 +69,11 @@ logger.add(sys.stderr, level="INFO")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# SSE event queues, keyed by call_sid. Drained by /events.
 LIVE_EVENTS: dict[str, asyncio.Queue] = {}
+# Live observers for in-progress calls, keyed by call_sid. Source of truth for
+# partial transcripts read by the /status endpoint (Phase 4).
+ACTIVE_CALLS: dict[str, "TurnLogObserver"] = {}
 
 
 class TurnLogObserver(BaseObserver):
@@ -77,6 +87,14 @@ class TurnLogObserver(BaseObserver):
         queue = LIVE_EVENTS.get(self.call_sid)
         if queue is not None:
             await queue.put(turn)
+
+    async def log_tool(self, text: str) -> None:
+        """Record a tool invocation as an agent turn (e.g. [PRESSED: 1],
+        [ENDED CALL: voicemail]). Matches the eval-transcript format."""
+        turn = {"role": "agent", "text": text}
+        self.turns.append(turn)
+        await self._emit(turn)
+        logger.info(f"AGENT: {text}")
 
     async def on_push_frame(self, data) -> None:
         frame = data.frame
@@ -100,6 +118,8 @@ async def run_bot(transport: BaseTransport, task: str, call_sid: str) -> None:
     system_instruction = render_system_prompt(task, get_user_profile())
     logger.info(f"TASK: {task}")
 
+    observer = TurnLogObserver(call_sid)
+
     llm = AnthropicLLMService(
         api_key=require_env("ANTHROPIC_API_KEY"),
         settings=AnthropicLLMService.Settings(
@@ -112,6 +132,7 @@ async def run_bot(transport: BaseTransport, task: str, call_sid: str) -> None:
     async def end_call_handler(params: FunctionCallParams) -> None:
         reason = params.arguments.get("reason", "")
         logger.info(f"end_call invoked: {reason!r}")
+        await observer.log_tool(f"[ENDED CALL: {reason}]")
         await params.result_callback({"status": "ending call"})
         await params.llm.push_frame(EndTaskFrame(), FrameDirection.UPSTREAM)
 
@@ -127,6 +148,7 @@ async def run_bot(transport: BaseTransport, task: str, call_sid: str) -> None:
             await params.result_callback({"status": "error", "message": "no valid digits"})
             return
         logger.info(f"send_dtmf invoked: {digits!r}")
+        await observer.log_tool(f"[PRESSED: {digits}]")
         await params.result_callback({"status": "ok", "digits": digits})
         await params.llm.push_frame(OutputDTMFFrame(buttons=keys))
 
@@ -157,7 +179,6 @@ async def run_bot(transport: BaseTransport, task: str, call_sid: str) -> None:
         ]
     )
 
-    observer = TurnLogObserver(call_sid)
     pipeline_task = PipelineTask(
         pipeline,
         params=PipelineParams(
@@ -173,27 +194,45 @@ async def run_bot(transport: BaseTransport, task: str, call_sid: str) -> None:
         logger.info("call ended; cancelling pipeline")
         await pipeline_task.cancel()
 
-    await PipelineRunner(handle_sigint=False).run(pipeline_task)
+    # WS is connected: register the live observer and mark in_progress.
+    ACTIVE_CALLS[call_sid] = observer
+    record = load_call_record(call_sid)
+    if record is not None and record["status"] == "dialing":
+        record["status"] = "in_progress"
+        save_call_record(call_sid, record)
 
-    record: dict[str, Any] = {
-        "call_sid": call_sid,
-        "task": task,
-        "transcript": observer.turns,
-        "result": None,
-        "error": None,
-    }
     try:
-        record["result"] = await extract_result(task, observer.turns)
-        logger.info(f"RESULT: {json.dumps(record['result'], indent=2)}")
-    except Exception as e:
-        record["error"] = f"{type(e).__name__}: {e}"
-        logger.exception("extraction failed")
-    path = save_call_record(call_sid, record)
-    logger.info(f"saved call record to {path}")
+        await PipelineRunner(handle_sigint=False).run(pipeline_task)
 
-    queue = LIVE_EVENTS.get(call_sid)
-    if queue is not None:
-        await queue.put(None)
+        record = load_call_record(call_sid) or new_call_record(call_sid, to_number=None, task=task)
+        record["status"] = "extracting"
+        record["transcript"] = observer.turns
+        save_call_record(call_sid, record)
+
+        try:
+            record["result"] = await extract_result(task, observer.turns)
+            logger.info(f"RESULT: {json.dumps(record['result'], indent=2)}")
+        except Exception as e:
+            record["error"] = f"{type(e).__name__}: {e}"
+            logger.exception("extraction failed")
+
+        record["status"] = "completed"
+        finalize_timing(record)
+        path = save_call_record(call_sid, record)
+        logger.info(f"saved call record to {path}")
+    except Exception as e:
+        logger.exception("run_bot failed")
+        record = load_call_record(call_sid) or new_call_record(call_sid, to_number=None, task=task)
+        record["status"] = "error"
+        record["error"] = f"{type(e).__name__}: {e}"
+        record["transcript"] = observer.turns
+        finalize_timing(record)
+        save_call_record(call_sid, record)
+    finally:
+        queue = LIVE_EVENTS.get(call_sid)
+        if queue is not None:
+            await queue.put(None)
+        ACTIVE_CALLS.pop(call_sid, None)
 
 
 async def handle_call(websocket: WebSocket) -> None:
@@ -233,6 +272,9 @@ def place_twilio_call(to_number: str, task: str) -> str:
         to=to_number,
         from_=require_env("TWILIO_PHONE_NUMBER"),
         twiml=twiml,
+        status_callback=f"{ngrok_url}/call-status",
+        status_callback_event=["completed"],
+        status_callback_method="POST",
     )
     return call.sid
 
@@ -254,12 +296,69 @@ async def submit(
     template = TASK_TEMPLATES.get(task_type)
     if template is None:
         raise HTTPException(400, f"unknown task_type: {task_type!r}")
-    task = template.format(context=context.strip())
-    logger.info(f"submit: task_type={task_type!r} phone={phone!r} task={task!r}")
-    call_sid = place_twilio_call(phone, task)
+    try:
+        to_number = normalize_phone(phone)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    ctx = context.strip()
+    task = template.format(context=ctx)
+    logger.info(f"submit: task_type={task_type!r} phone={to_number!r} task={task!r}")
+    try:
+        call_sid = place_twilio_call(to_number, task)
+    except Exception as e:
+        logger.exception("calls.create failed")
+        raise HTTPException(502, f"failed to place call: {e}")
+    record = new_call_record(
+        call_sid, to_number=to_number, task=task, task_type=task_type, context=ctx or None
+    )
+    save_call_record(call_sid, record)
     LIVE_EVENTS[call_sid] = asyncio.Queue()
     logger.info(f"placed call sid={call_sid}")
     return {"call_sid": call_sid, "task": task}
+
+
+@app.post("/call-status")
+async def call_status_callback(
+    call_sid: str = Form(..., alias="CallSid"),
+    twilio_status: str = Form(..., alias="CallStatus"),
+    call_duration: str | None = Form(None, alias="CallDuration"),
+) -> Response:
+    record = load_call_record(call_sid)
+    if record is None or record["status"] in TERMINAL_STATUSES:
+        return Response(status_code=204)  # unknown sid or already terminal: idempotent no-op
+
+    duration = None
+    if call_duration:
+        try:
+            duration = int(call_duration)
+        except ValueError:
+            duration = None
+
+    if record["status"] == "dialing":
+        # The media stream never connected — this callback owns the outcome.
+        if twilio_status == "completed":
+            record["status"] = "error"
+            record["error"] = "call completed but media stream never connected"
+        elif twilio_status == "no-answer":
+            record["status"] = "no_answer"
+        elif twilio_status == "busy":
+            record["status"] = "busy"
+        else:  # failed, canceled, or anything unexpected
+            record["status"] = "failed"
+        finalize_timing(record, duration)
+        save_call_record(call_sid, record)
+        queue = LIVE_EVENTS.get(call_sid)
+        if queue is not None:
+            await queue.put(None)
+        logger.info(f"call-status {call_sid}: {twilio_status} -> {record['status']}")
+    else:
+        # in_progress / extracting: the WS path owns status; only backfill timing.
+        if record.get("duration_s") is None and duration is not None:
+            record["duration_s"] = duration
+            record["est_cost_usd"] = est_cost(duration)
+            save_call_record(call_sid, record)
+
+    return Response(status_code=204)
 
 
 @app.get("/events/{call_sid}")

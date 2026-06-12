@@ -9,8 +9,8 @@ Legend: ✅ done · 🚧 in progress · ⛔ blocked · ⏭️ skipped
 | Phase | What | Status | Gate evidence |
 |---|---|---|---|
 | 0 | Foundations: `agent.py` split, requirements fix | ✅ (1 sub-gate deferred) | imports clean w/o env; fresh `/tmp` venv install + import OK |
-| 1 | Call lifecycle | 🚧 | — |
-| 2 | Hang-up prep (code only) | — | — |
+| 1 | Call lifecycle | ✅ | `pytest tests/test_lifecycle.py tests/test_observer.py` → 27 passed |
+| 2 | Hang-up prep (code only) | 🚧 | — |
 | 3 | Trust: evidence + confidence + evals | — | — |
 | 4 | MCP server + endpoints + README | — | — |
 | 5 | Form secret | — | — |
@@ -99,9 +99,62 @@ Scratch venv deleted after.
 **Deferred (⛔ credentials):** 0.1's "eval harness runs a single
 scenario" — needs `ANTHROPIC_API_KEY`. Will run once a key is available.
 
-## Phase 1 — call lifecycle
+## Phase 1 — call lifecycle ✅
 
-_Next._
+**1.1 Record schema v2** — `new_call_record()` in `agent.py` builds the
+13-field stub (`call_sid, to_number, task, task_type, context, status,
+created_at, ended_at, duration_s, est_cost_usd, transcript, result,
+error`). `/submit` now: normalize phone → `place_twilio_call` (502 if it
+raises, no record) → write `dialing` stub → create `LIVE_EVENTS` queue.
+`normalize_phone()` strips spaces/dashes/dots/parens, prepends `+1`
+(10-digit) / `+` (11-digit leading 1), validates `^\+\d{8,15}$` else
+`ValueError`→400. Timestamps `datetime.now(timezone.utc).isoformat()`.
+`finalize_timing()` stamps `ended_at`/`duration_s`/`est_cost_usd`
+(prefers Twilio `CallDuration`, else wall-clock since `created_at`;
+`est_cost_usd = round(duration_s/60 * 0.05, 2)`).
+
+**1.2 Crash-proof `run_bot`** — post-pipeline work wrapped in
+try/except/finally: success path writes `extracting`→`completed`
+(extraction failure is caught locally, leaving status `completed` with
+`error` set — the *call* succeeded, extraction is best-effort); any
+unhandled exception → `error` + exception string; `finally` always
+pushes `None` to the live queue and pops the `ACTIVE_CALLS` entry. Status
+persisted to disk at each transition (`dialing`→`in_progress` at WS
+connect, `extracting` at pipeline end, terminal at final save) via
+read-modify-write of the stub.
+
+**1.3 `/call-status` callback** — kills the no-answer black hole.
+`place_twilio_call` registers `status_callback=<ngrok>/call-status`,
+event `completed`. Endpoint (form-encoded, `CallSid`/`CallStatus`/
+`CallDuration`): unknown sid or already-terminal → 204 no-op; record in
+`dialing` (WS never connected) → maps `no-answer`→`no_answer`,
+`busy`→`busy`, `failed`/`canceled`→`failed`, `completed`→`error`
+("media stream never connected"), stamps timing, pushes `None`; record
+`in_progress`/`extracting` → WS owns status, only backfills
+`duration_s`/`est_cost_usd` if missing.
+
+**1.4 Live registry** — `ACTIVE_CALLS: dict[str, TurnLogObserver]` in
+`server.py`, registered at WS connect, removed in `run_bot` `finally`.
+Source of truth for partial transcripts (Phase 4 reads it).
+
+**1.5 Tool calls in transcript** — `TurnLogObserver.log_tool(text)`
+appends `{role: agent, text}` + emits to the live queue;
+`send_dtmf_handler`→`[PRESSED: <digits>]`, `end_call_handler`→
+`[ENDED CALL: <reason>]`. Observer moved above the handlers in `run_bot`.
+
+Gate evidence:
+```
+pytest tests/test_lifecycle.py tests/test_observer.py -q
+27 passed, 1 warning in 1.86s
+```
+Tests use httpx `ASGITransport`; `place_twilio_call` monkeypatched,
+`DIALAGENT_CALLS_DIR`→tmp; no network, no real calls.
+
+**Deviation:** `static/index.html` changes for non-`completed` terminal
+states (the "No one answered" + click-to-dial CTA from 1.3) are bundled
+into **Phase 3.1**, where the results view is rewritten anyway for
+evidence rendering + the low-confidence fallback CTA — avoids editing
+the same view twice. Verified together in morning checklist rows 2 & 5.
 
 ## Phase 2 — hang-up prep
 

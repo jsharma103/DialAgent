@@ -8,6 +8,8 @@ use so importing `agent` is always safe (tests, fresh checkouts, no `.env`).
 
 import json
 import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -230,3 +232,91 @@ def save_call_record(call_sid: str, record: dict[str, Any]) -> Path:
     tmp.write_text(json.dumps(record, indent=2))
     tmp.replace(path)
     return path
+
+
+def load_call_record(call_sid: str) -> dict[str, Any] | None:
+    path = get_calls_dir() / f"{call_sid}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+# --- call record schema v2 ---
+
+# Statuses a call can no longer transition out of.
+TERMINAL_STATUSES = {"completed", "no_answer", "busy", "failed", "error"}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def elapsed_seconds(created_at_iso: str) -> int:
+    """Seconds from a record's created_at to now (fallback duration)."""
+    created = datetime.fromisoformat(created_at_iso)
+    return max(0, int((datetime.now(timezone.utc) - created).total_seconds()))
+
+
+def est_cost(duration_s: float) -> float:
+    return round(duration_s / 60 * EST_COST_PER_MIN, 2)
+
+
+def finalize_timing(record: dict[str, Any], duration_s: int | None = None) -> None:
+    """Stamp ended_at, duration_s, and est_cost_usd on a terminating record.
+
+    Prefers an explicit duration_s (Twilio's CallDuration); otherwise keeps an
+    existing value, else falls back to wall-clock since created_at.
+    """
+    record["ended_at"] = now_iso()
+    if duration_s is not None:
+        record["duration_s"] = duration_s
+    elif record.get("duration_s") is None:
+        record["duration_s"] = elapsed_seconds(record["created_at"])
+    record["est_cost_usd"] = est_cost(record["duration_s"])
+
+
+def new_call_record(
+    call_sid: str,
+    *,
+    to_number: str | None,
+    task: str,
+    task_type: str | None = None,
+    context: str | None = None,
+) -> dict[str, Any]:
+    """A fresh schema-v2 stub record in the `dialing` state."""
+    return {
+        "call_sid": call_sid,
+        "to_number": to_number,
+        "task": task,
+        "task_type": task_type,
+        "context": context,
+        "status": "dialing",
+        "created_at": now_iso(),
+        "ended_at": None,
+        "duration_s": None,
+        "est_cost_usd": None,
+        "transcript": [],
+        "result": None,
+        "error": None,
+    }
+
+
+_PHONE_STRIP = re.compile(r"[ \-.()]")
+_E164 = re.compile(r"^\+\d{8,15}$")
+
+
+def normalize_phone(raw: str) -> str:
+    """Normalize a pasted phone number to E.164. Raises ValueError if invalid.
+
+    Strips spaces/dashes/dots/parens; bare 10 digits → +1; bare 11 starting
+    with 1 → +; an existing + is validated as-is.
+    """
+    s = _PHONE_STRIP.sub("", raw.strip())
+    if not s.startswith("+"):
+        if len(s) == 10 and s.isdigit():
+            s = "+1" + s
+        elif len(s) == 11 and s.startswith("1") and s.isdigit():
+            s = "+" + s
+    if not _E164.match(s):
+        raise ValueError(f"invalid phone number: {raw!r}")
+    return s
