@@ -11,9 +11,9 @@ Legend: ✅ done · 🚧 in progress · ⛔ blocked · ⏭️ skipped
 | 0 | Foundations: `agent.py` split, requirements fix | ✅ (1 sub-gate deferred) | imports clean w/o env; fresh `/tmp` venv install + import OK |
 | 1 | Call lifecycle | ✅ | `pytest tests/test_lifecycle.py tests/test_observer.py` → 27 passed |
 | 2 | Hang-up prep (code only) | ✅ | frame-path trace written; timeout 1200→600; live confirm = morning #4 |
-| 3 | Trust: evidence + confidence + evals | 🚧 | — |
-| 4 | MCP server + endpoints + README | — | — |
-| 5 | Form secret | — | — |
+| 3 | Trust: evidence + confidence + evals | ⛔ (code pending; gate needs key) | — |
+| 4 | MCP server + endpoints + README | ✅ | `pytest tests/` → 36 passed |
+| 5 | Form secret | 🚧 | — |
 | 6 | Remote connector surface | — | — |
 | E | Morning checklist (Jay, real calls) | — | handed off — needs Jay |
 
@@ -198,7 +198,54 @@ code level; **live confirmation is morning checklist #4.**
 
 ## Phase 3 — trust
 
-## Phase 4 — MCP server
+## Phase 4 — MCP server ✅
+
+**4.1 HTTP endpoints** (`server.py`):
+- `POST /submit` now accepts **JSON or form**. JSON shapes: free-text
+  `{phone, task}` (MCP path → `task_type`/`context` null) or `{phone,
+  task_type, context}`. Branches on `Content-Type`; same normalization +
+  502-on-create-failure as Phase 1. Form path (web form) unchanged in
+  behavior.
+- `GET /status/{call_sid}?wait=N` — long-poll. `wait` clamped 0–120
+  (default 0). Loops: terminal status or `wait` elapsed → return full
+  snapshot; else `asyncio.sleep(1)`. Snapshot replaces `transcript` with
+  the live `ACTIVE_CALLS` observer's turns when the call is in-flight.
+  404 only for unknown sid.
+- `GET /calls?limit=N` — newest-first by `created_at`; each entry is
+  `{call_sid, to_number, task, status, created_at, summary}` (summary =
+  `result.summary` when present).
+
+**4.2 `mcp_server.py`** — `FastMCP("DialAgent")` over stdio, thin httpx
+client of the FastAPI app. Never imports `server`/`agent`. Env
+`DIALAGENT_BASE_URL` (default `http://localhost:8000`) + `DIALAGENT_SECRET`
+(sent as `X-DialAgent-Key`). Tools: `place_call(phone, task)` →
+`POST /submit`; `get_call_status(call_sid, wait_seconds=60)` →
+`GET /status`; `list_recent_calls(limit=10)` → `GET /calls`. Tool
+docstrings written as host-LLM prompts (place_call warns it costs real
+money / places a real call; get_call_status says poll until terminal).
+`if __name__ == "__main__": mcp.run()` (stdio). Verified `FastMCP` API
+against installed `mcp==1.27.2` (`run(transport='stdio')`,
+`streamable_http_app()`→Starlette for Phase 6, `streamable_http_path`
+configurable).
+
+**4.3 `README.md`** — three sections in plan order: (1) remote connector
+(stub heading; content lands Phase 6), (2) web form `?key=` URL, (3) run
+your own instance (prereqs → `docs/stack-setup.md`, `.env` checklist,
+`user_profile.json` from example, server + ngrok, stdio MCP JSON snippet
+with abs-path `command`/`args` + `env`).
+
+Test infra: `isolated_state` autouse fixture (fresh `DIALAGENT_CALLS_DIR`
+tmp dir + cleared registries) moved to root `conftest.py`, shared by all
+test files.
+
+Gate evidence:
+```
+pytest tests/ -q
+36 passed, 1 warning in 2.32s
+```
+(includes `test_mcp_endpoints.py`: JSON /submit both shapes, /status
+terminal-immediate + long-poll-returns-terminal + partial-transcript +
+404, /calls newest-first + limit, and the 3-tool registration check.)
 
 ## Phase 5 — form secret
 

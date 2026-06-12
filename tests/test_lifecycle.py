@@ -19,16 +19,7 @@ def asgi_client() -> httpx.AsyncClient:
     )
 
 
-@pytest.fixture(autouse=True)
-def isolated_state(tmp_path, monkeypatch):
-    """Each test gets a fresh calls dir and clean live registries."""
-    monkeypatch.setenv("DIALAGENT_CALLS_DIR", str(tmp_path))
-    server.LIVE_EVENTS.clear()
-    server.ACTIVE_CALLS.clear()
-    yield tmp_path
-    server.LIVE_EVENTS.clear()
-    server.ACTIVE_CALLS.clear()
-
+# `isolated_state` (autouse) lives in conftest.py.
 
 # --- /submit: stub record + phone normalization ---
 

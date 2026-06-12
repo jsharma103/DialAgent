@@ -6,7 +6,7 @@ from typing import Any
 from xml.sax.saxutils import quoteattr
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Response, WebSocket
+from fastapi import FastAPI, Form, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from loguru import logger
 from twilio.rest import Client as TwilioClient
@@ -288,28 +288,48 @@ async def index() -> FileResponse:
 
 
 @app.post("/submit")
-async def submit(
-    task_type: str = Form(...),
-    phone: str = Form(...),
-    context: str = Form(""),
-) -> dict[str, str]:
-    template = TASK_TEMPLATES.get(task_type)
-    if template is None:
-        raise HTTPException(400, f"unknown task_type: {task_type!r}")
+async def submit(request: Request) -> dict[str, str]:
+    """Place a call. Accepts form data (web form: task_type + context) or
+    JSON (MCP: free-text `task`, or `task_type` + `context`)."""
+    ctype = request.headers.get("content-type", "")
+    if ctype.startswith("application/json"):
+        body = await request.json()
+    else:
+        body = dict(await request.form())
+
+    phone = (body.get("phone") or "").strip()
+    if not phone:
+        raise HTTPException(400, "missing phone")
     try:
         to_number = normalize_phone(phone)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    ctx = context.strip()
-    task = template.format(context=ctx)
-    logger.info(f"submit: task_type={task_type!r} phone={to_number!r} task={task!r}")
+
+    task_type = body.get("task_type") or None
+    free_task = (body.get("task") or "").strip()
+    if task_type:
+        template = TASK_TEMPLATES.get(task_type)
+        if template is None:
+            raise HTTPException(400, f"unknown task_type: {task_type!r}")
+        ctx = (body.get("context") or "").strip()
+        task = template.format(context=ctx)
+        ctx = ctx or None
+    elif free_task:
+        task = free_task
+        task_type = None
+        ctx = None
+    else:
+        raise HTTPException(400, "must provide either 'task' or 'task_type'")
+
+    logger.info(f"submit: phone={to_number!r} task_type={task_type!r} task={task!r}")
     try:
         call_sid = place_twilio_call(to_number, task)
     except Exception as e:
         logger.exception("calls.create failed")
         raise HTTPException(502, f"failed to place call: {e}")
+
     record = new_call_record(
-        call_sid, to_number=to_number, task=task, task_type=task_type, context=ctx or None
+        call_sid, to_number=to_number, task=task, task_type=task_type, context=ctx
     )
     save_call_record(call_sid, record)
     LIVE_EVENTS[call_sid] = asyncio.Queue()
@@ -387,6 +407,59 @@ async def result(call_sid: str) -> JSONResponse:
     if not path.exists():
         raise HTTPException(404, "result not yet available")
     return JSONResponse(json.loads(path.read_text()))
+
+
+def _status_snapshot(record: dict[str, Any], call_sid: str) -> dict[str, Any]:
+    """Full record, but with live observer turns when the call is in-flight."""
+    snap = dict(record)
+    observer = ACTIVE_CALLS.get(call_sid)
+    if observer is not None:
+        snap["transcript"] = list(observer.turns)
+    return snap
+
+
+@app.get("/status/{call_sid}")
+async def status(call_sid: str, wait: int = 0) -> JSONResponse:
+    """Long-poll: block until the call reaches a terminal status or `wait`
+    seconds (clamped 0–120) elapse, then return the full current snapshot."""
+    wait = max(0, min(120, wait))
+    elapsed = 0
+    while True:
+        record = load_call_record(call_sid)
+        if record is None:
+            raise HTTPException(404, "unknown call")
+        if record["status"] in TERMINAL_STATUSES or elapsed >= wait:
+            return JSONResponse(_status_snapshot(record, call_sid))
+        await asyncio.sleep(1)
+        elapsed += 1
+
+
+@app.get("/calls")
+async def list_calls(limit: int = 10) -> JSONResponse:
+    calls_dir = get_calls_dir()
+    records: list[dict[str, Any]] = []
+    if calls_dir.exists():
+        for path in calls_dir.glob("*.json"):
+            try:
+                records.append(json.loads(path.read_text()))
+            except (OSError, json.JSONDecodeError):
+                continue
+    records.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    out = []
+    for r in records[: max(0, limit)]:
+        res = r.get("result")
+        summary = res.get("summary") if isinstance(res, dict) else None
+        out.append(
+            {
+                "call_sid": r.get("call_sid"),
+                "to_number": r.get("to_number"),
+                "task": r.get("task"),
+                "status": r.get("status"),
+                "created_at": r.get("created_at"),
+                "summary": summary,
+            }
+        )
+    return JSONResponse(out)
 
 
 @app.websocket("/ws")
